@@ -1,5 +1,5 @@
 from pydantic import BaseModel
 
 
-class OrganizationCreateModel(BaseModel):
+class OrganizationCreateParams(BaseModel):
     pass

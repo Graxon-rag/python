@@ -1,5 +1,5 @@
 from pydantic import BaseModel
 
 
-class ProjectCreateParams(BaseModel):
+class VideoModelCreateParams(BaseModel):
     pass
