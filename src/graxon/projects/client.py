@@ -64,7 +64,7 @@ class Project:
 
     async def create(self, org_id: str, request: ProjectCreateParams) -> ProjectResponseParams:
         """Creates a new project in Graxon."""
-        payload = request.model_dump()
+        payload = request.model_dump(mode='json')
         res_data = await self._request("POST", f"{self._project_prefix}/{org_id}/create", json=payload)
 
         data = res_data.get("data")

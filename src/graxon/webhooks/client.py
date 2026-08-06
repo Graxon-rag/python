@@ -64,7 +64,7 @@ class Webhook:
 
     async def create(self, org_id: str, project_id: uuid.UUID, request: WebhookCreateParams) -> WebhookResponseParams:
         """Creates a new webhook."""
-        payload = request.model_dump()
+        payload = request.model_dump(mode='json')
         res_data = await self._request("POST", f"{self._project_prefix}/{org_id}/{project_id}/create", json=payload)
         data = res_data.get("data")
         if not data:
@@ -89,6 +89,6 @@ class Webhook:
 
         return [WebhookResponseParams(**item) for item in list_data]
 
-    async def delete(self, org_id: str, project_id: uuid.UUID, webhook_id: uuid.UUID) -> None:
+    async def delete(self, org_id: str, project_id: uuid.UUID, webhook_id: uuid.UUID) -> Dict[str, Any]:
         """Deletes a specific webhook by ID."""
-        await self._request("DELETE", f"{self._project_prefix}/{org_id}/{project_id}/delete/{webhook_id}")
+        return await self._request("DELETE", f"{self._project_prefix}/{org_id}/{project_id}/delete/{webhook_id}")
