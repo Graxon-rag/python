@@ -5,6 +5,17 @@ import httpx
 
 
 class Organization:
+    """Client for managing Organizations in the Graxon API.
+
+    Examples:
+        ```python
+        from graxon.client import GraxonAsyncClient
+
+        client = GraxonAsyncClient(api_key="graxon_api_key", base_url="http://localhost:8888")
+        org = await client.orgs.create(request=OrganizationCreateParams(name="test", description="test org"))
+        ```
+    """
+
     def __init__(self, api_key: str | None = None, base_url: str = "http://localhost:8888", timeout: float | None = 120.0):
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -27,7 +38,13 @@ class Organization:
         )
 
     async def close(self):
-        """Closes the underlying HTTP connections."""
+        """Closes the underlying HTTP connections.
+
+        Examples:
+            ```python
+            await client.orgs.close()
+            ```
+        """
         await self._http_client.aclose()
 
     async def __aenter__(self):
@@ -64,7 +81,28 @@ class Organization:
     # --- API Methods ---
 
     async def create(self, request: OrganizationCreateParams) -> OrganizationResponseParams:
-        """Creates a new organization in Graxon."""
+        """Creates a new organization in Graxon.
+
+        Args:
+            request: The parameters for the organization to create, including
+                its `name` and `description`.
+
+        Returns:
+            OrganizationResponseParams: The newly created organization, including
+            its assigned `id`.
+
+        Raises:
+            GraxonAPIError: If the API responds with an error or unexpected payload.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            org = await client.orgs.create(
+                request=OrganizationCreateParams(name="test", description="test org")
+            )
+            print(org.id)
+            ```
+        """
         payload = request.model_dump()
         res_data = await self._request("POST", f"{self._org_prefix}/create", json=payload)
 
@@ -75,7 +113,24 @@ class Organization:
         return OrganizationResponseParams(**data)
 
     async def get(self, org_id: str) -> OrganizationResponseParams:
-        """Retrieves a specific organization by ID."""
+        """Retrieves a specific organization by ID.
+
+        Args:
+            org_id: The unique identifier of the organization to fetch.
+
+        Returns:
+            OrganizationResponseParams: The matching organization.
+
+        Raises:
+            GraxonAPIError: If the API responds with an error or unexpected payload.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            org = await client.orgs.get(org_id="org_123")
+            print(org.name)
+            ```
+        """
         res_data = await self._request("GET", f"{self._org_prefix}/get/{org_id}")
 
         data = res_data.get("data")
@@ -85,7 +140,23 @@ class Organization:
         return OrganizationResponseParams(**data)
 
     async def list(self) -> list[OrganizationResponseParams]:
-        """Lists all organizations."""
+        """Lists all organizations.
+
+        Returns:
+            list[OrganizationResponseParams]: All organizations visible to the
+            authenticated API key.
+
+        Raises:
+            GraxonAPIError: If the API responds with an error.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            orgs = await client.orgs.list()
+            for org in orgs:
+                print(org.id, org.name)
+            ```
+        """
         res_data = await self._request("GET", f"{self._org_prefix}/get/all")
 
         # Handle the nested {"data": {"data": [...]}} structure
@@ -95,5 +166,22 @@ class Organization:
         return [OrganizationResponseParams(**item) for item in list_data]
 
     async def delete(self, org_id: str) -> Dict[str, Any]:
-        """Deletes an organization by ID."""
+        """Deletes an organization by ID.
+
+        Args:
+            org_id: The unique identifier of the organization to delete.
+
+        Returns:
+            Dict[str, Any]: The raw API response confirming deletion.
+
+        Raises:
+            GraxonAPIError: If the API responds with an error.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            result = await client.orgs.delete(org_id="org_123")
+            print(result["success"])
+            ```
+        """
         return await self._request("DELETE", f"{self._org_prefix}/delete/{org_id}")
