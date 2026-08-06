@@ -1,25 +1,26 @@
-from .types import AudioModelCreateParams, AudioModelResponseParams, AudioModelProvider
+from .types import ModelCredentialCreateParams, ModelCredentialResponseParams
 from ..errors import GraxonAPIError, GraxonNetworkError
+from ..types import ModelProvider
 from typing import Any, Dict
 import httpx
 import uuid
 
 
-class AudioModel:
+class ModelCredential:
     def __init__(self, api_key: str | None, base_url: str = "http://localhost:8888", timeout: float | None = 120.0):
         self._api_key = api_key
         self._base_url = base_url
         self._timeout = timeout
 
         headers = {
-            "User-Agent": "graxon-python",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
+                    "User-Agent": "graxon-python",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                }
         if self._api_key:
             headers["GRAXON-API-KEY"] = f"{self._api_key}"
 
-        self._audio_model_prefix = "/api/audio-models"
+        self._model_credential_prefix = "/model-credentials"
 
         self._http_client = httpx.AsyncClient(
             base_url=self._base_url,
@@ -62,41 +63,32 @@ class AudioModel:
                 f"Failed to communicate with Graxon API: {str(e)}"
             ) from None
 
-    async def create(self, org_id: str, request: AudioModelCreateParams) -> AudioModelResponseParams:
-        """Create a new audio model."""
+    async def create(self, org_id: str, request: ModelCredentialCreateParams) -> ModelCredentialResponseParams:
+        """Creates a new model credential in Graxon."""
         payload = request.model_dump()
-        res_data = await self._request("POST", f"{self._audio_model_prefix}/{org_id}/create", json=payload)
+        res_data = await self._request("POST", f"{self._model_credential_prefix}/{org_id}/create", json=payload)
 
         data = res_data.get("data")
         if not data:
             raise GraxonAPIError("Graxon API Error: Response missing 'data' payload")
 
-        return AudioModelResponseParams(**data)
+        return ModelCredentialResponseParams(**data)
 
-    async def create_multiple(self, org_id: str, request: list[AudioModelCreateParams]) -> dict[str, Any]:
-        payload = [item.model_dump() for item in request]
-        res_data = await self._request("POST", f"{self._audio_model_prefix}/{org_id}/create-multiple", json=payload)
+    async def list_by_provider(self, org_id: str, provider: ModelProvider) -> list[ModelCredentialResponseParams]:
+        res_data = await self._request("GET", f"{self._model_credential_prefix}/{org_id}/get/all/provider/{provider}")
 
-        data = res_data.get("data")
-        if not data:
-            raise GraxonAPIError("Graxon API Error: Response missing 'data' payload")
-
-        return data
-
-    async def get(self, org_id: str, audio_model_id: uuid.UUID) -> AudioModelResponseParams:
-        res_data = await self._request("GET", f"{self._audio_model_prefix}/{org_id}/get/{audio_model_id}")
-        data = res_data.get("data")
-        if not data:
-            raise GraxonAPIError("Graxon API Error: Response missing 'data' payload")
-        return AudioModelResponseParams(**data)
-
-    async def list_by_provider(self, org_id: str, provider: AudioModelProvider) -> list[AudioModelResponseParams]:
-        res_data = await self._request("GET", f"{self._audio_model_prefix}/{org_id}/get/all/provider/{provider.value}")
         # Handle the nested {"data": {"data": [...]}} structure
         wrapper_data = res_data.get("data") or {}
         list_data = wrapper_data.get("data") or []
 
-        return [AudioModelResponseParams(**item) for item in list_data]
+        return [ModelCredentialResponseParams(**item) for item in list_data]
 
-    async def delete(self, org_id: str, audio_model_id: uuid.UUID):
-        await self._request("DELETE", f"{self._audio_model_prefix}/{org_id}/delete/{audio_model_id}")
+    async def get(self, org_id: str, model_credential_id: uuid.UUID) -> ModelCredentialResponseParams:
+        res_data = await self._request("GET", f"{self._model_credential_prefix}/{org_id}/get/{model_credential_id}")
+        data = res_data.get("data")
+        if not data:
+            raise GraxonAPIError("Graxon API Error: Response missing 'data' payload")
+        return ModelCredentialResponseParams(**data)
+
+    async def delete(self, org_id: str, model_credential_id: uuid.UUID) -> Any:
+        return await self._request("DELETE", f"{self._model_credential_prefix}/{org_id}/delete/{model_credential_id}")

@@ -1,5 +1,69 @@
-from pydantic import BaseModel
+from typing import Optional, Dict, Any
+from pydantic import BaseModel, Field
+from enum import Enum
+import datetime
+import uuid
+
+
+class VideoModelProvider(str, Enum):
+    TWELVELABS = "twelvelabs"
+    GEMINI = "gemini"
 
 
 class VideoModelCreateParams(BaseModel):
-    pass
+    org_id: str = Field(
+        description="The organization id of the video model",
+    )
+    name: str = Field(
+        description="The name of the video model",
+    )
+    provider: VideoModelProvider = Field(
+        description="The provider of the video model",
+    )
+    model_name: str = Field(
+        description="The model name of the video model",
+    )
+    model_id: str = Field(
+        description="The model id of the video model",
+    )
+    description: str = Field(
+        description="The description of the video model",
+    )
+    model_metadata: Optional[Dict[str, Any]] = Field(
+        default={},
+        description="The model metadata of the audio model",
+    )
+
+
+class VideoModelResponseModel(BaseModel):
+    id: uuid.UUID = Field(
+        description="The id of the video model",
+    )
+    org_id: str = Field(
+        description="The organization id of the video model",
+    )
+    name: str = Field(
+        description="The name of the video model",
+    )
+    provider: VideoModelProvider = Field(
+        description="The provider of the video model",
+    )
+    model_name: str = Field(
+        description="The model name of the video model",
+    )
+    model_id: str = Field(
+        description="The model id of the video model",
+    )
+    description: str = Field(
+        description="The description of the video model",
+    )
+    model_metadata: Optional[Dict[str, Any]] = Field(
+        default={},
+        description="The model metadata of the audio model",
+    )
+    created_at: datetime.datetime = Field(
+        description="The created at of the video model",
+    )
+    updated_at: datetime.datetime = Field(
+        description="The updated at of the video model",
+    )
