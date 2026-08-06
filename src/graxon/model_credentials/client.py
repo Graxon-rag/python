@@ -20,7 +20,7 @@ class ModelCredential:
         if self._api_key:
             headers["GRAXON-API-KEY"] = f"{self._api_key}"
 
-        self._model_credential_prefix = "/model-credentials"
+        self._model_credential_prefix = "/api/model-credentials"
 
         self._http_client = httpx.AsyncClient(
             base_url=self._base_url,
@@ -75,7 +75,7 @@ class ModelCredential:
         return ModelCredentialResponseParams(**data)
 
     async def list_by_provider(self, org_id: str, provider: ModelProvider) -> list[ModelCredentialResponseParams]:
-        res_data = await self._request("GET", f"{self._model_credential_prefix}/{org_id}/get/all/provider/{provider}")
+        res_data = await self._request("GET", f"{self._model_credential_prefix}/{org_id}/get/all/provider/{provider.value}")
 
         # Handle the nested {"data": {"data": [...]}} structure
         wrapper_data = res_data.get("data") or {}

@@ -98,5 +98,9 @@ class AudioModel:
 
         return [AudioModelResponseParams(**item) for item in list_data]
 
-    async def delete(self, org_id: str, audio_model_id: uuid.UUID):
-        await self._request("DELETE", f"{self._audio_model_prefix}/{org_id}/delete/{audio_model_id}")
+    async def delete(self, org_id: str, audio_model_id: uuid.UUID) -> dict[str, Any]:
+        res_data = await self._request("DELETE", f"{self._audio_model_prefix}/{org_id}/delete/{audio_model_id}")
+        data = res_data.get("data")
+        if not data:
+            raise GraxonAPIError("Graxon API Error: Response missing 'data' payload")
+        return data

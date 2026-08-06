@@ -1,5 +1,7 @@
+from .model_credentials import ModelCredential
 from .embedding_models import EmbeddingModel
 from .project_configs import ProjectConfig
+from .model_providers import ModelProvider
 from .reranker_models import RerankerModel
 from .sparse_models import SparseModel
 from .audio_models import AudioModel
@@ -58,3 +60,6 @@ class GraxonAsyncClient:
         self.video_models = VideoModel(api_key, base_url, timeout)
         self.ocr_models = OCRModel(api_key, base_url, timeout)
         self.llm_models = LLMModel(api_key, base_url, timeout)
+
+        self.model_credentials = ModelCredential(api_key, base_url, timeout)
+        self.model_providers = ModelProvider(api_key, base_url, timeout)
