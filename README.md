@@ -17,7 +17,11 @@ Graxon combines dense vector search, sparse retrieval, and a structured Knowledg
   - [3. Model Credentials](#3-model-credentials)
   - [4. Exploring Available Providers](#4-exploring-available-providers)
   - [5. Managing Models](#5-managing-models)
-  - [6. Webhooks](#6-webhooks)
+  - [6. Managing Projects & Configurations](#6-managing-projects--configurations)
+    - [6.1. Creating and Managing Projects](#61-creating-and-managing-projects)
+    - [6.2. Updating Project Configurations](#62-updating-project-configurations)
+  - [7. Webhooks](#7-webhooks)
+  - [8. Managing Documents](#8-managing-documents)
 - [Error Handling](#error-handling)
 
 ---
@@ -281,7 +285,111 @@ sparse_model = await client.sparse_models.create(
 
 ---
 
-### 6. Webhooks
+### 6. Managing Projects & Configurations
+
+In Graxon, a **Project** acts as a logical container for your documents, knowledge graph, and vector stores. Every project is tied to a **Project Configuration**, which dictates exactly which AI models (LLMs, Embeddings, OCR, Rerankers) and features (e.g., Graph DB, Sparse Retrieval) are active for that specific project.
+
+#### 6.1. Creating and Managing Projects
+
+When you create a new project, you must supply a `ProjectConfigCreateParams` object mapping your desired models and credentials to the project.
+
+```python
+from graxon.projects.types import ProjectCreateParams
+from graxon.project_configs.types import ProjectConfigCreateParams
+import uuid
+
+org_id = "your-org-id"
+
+# 1. Define the Project Configuration
+# Note: You get these UUIDs after creating the respective models and credentials.
+project_config = ProjectConfigCreateParams(
+    # Feature Flags
+    graph_db_enable=True,
+    sparse_embedding_enable=True,
+    reranker_enable=True,
+    llm_tag_extraction_enable=True,
+
+    # Model Mappings
+    llm_model_id=uuid.UUID("713c1e08..."),
+    llm_model_credential_id=uuid.UUID("e432613d..."),
+
+    embedding_model_id=uuid.UUID("cea2db34..."),
+    embedding_model_credential_id=uuid.UUID("8a6212d6..."),
+
+    sparse_text_model_id=uuid.UUID("91077ca9..."),
+    sparse_text_model_credential_id=uuid.UUID("aea0a0bb..."),
+
+    reranker_model_id=uuid.UUID("514618b6..."),
+    reranker_model_credential_id=uuid.UUID("dc631edb..."),
+
+    ocr_model_id=uuid.UUID("862fcfc3..."),
+    ocr_model_credential_id=uuid.UUID("abff39aa..."),
+
+    audio_model_id=uuid.UUID("27007f53..."),
+    audio_model_credential_id=uuid.UUID("7849d7eb..."),
+
+    video_model_id=uuid.UUID("6e23df10..."),
+    video_model_credential_id=uuid.UUID("5709ed71..."),
+)
+
+# 2. Create the Project
+new_project = await client.projects.create(
+    org_id=org_id,
+    request=ProjectCreateParams(
+        org_id=org_id,
+        name="Knowledge Base v1",
+        description="Production RAG pipeline",
+        config=project_config,
+        project_metadata={"environment": "production", "department": "HR"}
+    )
+)
+print(f"Project Created! ID: {new_project.id}")
+
+# 3. Retrieve a Project
+project = await client.projects.get(org_id=org_id, project_id=new_project.id)
+
+# 4. List all Projects in the Organization
+all_projects = await client.projects.list(org_id=org_id)
+
+# 5. Delete a Project
+await client.projects.delete(org_id=org_id, project_id=new_project.id)
+```
+
+#### 6.2. Updating Project Configurations
+
+As your needs evolve, you might want to swap out models (e.g., upgrading from GPT-3.5 to GPT-4) or toggle features without deleting the project. You can manage this via the `project_configs` client.
+
+```python
+from graxon.project_configs.types import ProjectConfigUpdateParams
+import uuid
+
+project_id = uuid.UUID("e538c04e-22c0-41a4-a1f6-49b91183e0bb")
+config_id = uuid.UUID("6f3121ef-68d0-4ab5-80d5-973ceb3a6b1a") # Fetched from your project details
+
+# 1. Get current configuration
+current_config = await client.project_configs.get(
+    org_id=org_id,
+    project_id=project_id,
+    config_id=config_id,
+)
+
+# 2. Update specific fields (e.g., swapping the LLM model)
+update_response = await client.project_configs.update(
+    org_id=org_id,
+    project_id=project_id,
+    config_id=config_id,
+    update=ProjectConfigUpdateParams(
+       llm_model_id=uuid.UUID("new-llm-model-uuid"),
+       llm_model_credential_id=uuid.UUID("new-credential-uuid")
+       # Any field omitted here will remain unchanged
+    ),
+)
+print("Configuration updated successfully.")
+```
+
+---
+
+### 7. Webhooks
 
 Webhooks are scoped to a specific `project_id` within your organization. Use them to receive real-time asynchronous updates.
 
@@ -306,6 +414,67 @@ webhook = await client.webhooks.create(
 
 # List project Webhooks
 webhooks = await client.webhooks.list(org_id=org_id, project_id=project_id)
+```
+
+---
+
+### 8. Managing Documents
+
+The `documents` client allows you to seamlessly upload large files (PDFs, videos, audio), manage their lifecycle within a project, generate secure access URLs, and trigger data processing pipelines.
+
+**Note on Uploads:** The `upload` method features a built-in, resumable multipart upload system. If a large file upload gets interrupted (e.g., network crash), simply run the exact same `upload` command again, and it will automatically resume from the last successful chunk.
+
+```python
+
+import uuid
+
+project_id = uuid.UUID("e538c04e-22c0-41a4-a1f6-49b91183e0bb")
+file_path = "./data/large_dataset.pdf"
+
+# 1. Upload a Document (Resumable Multipart)
+upload_response = await client.documents.upload(
+    org_id=org_id,
+    project_id=project_id,
+    file_path=file_path,
+    chunk_size_in_mb=15, # Optional: Customize chunk size
+    is_ocr_needed=True   # Optional: Flag for OCR requirement
+)
+print(f"Uploaded Document ID: {upload_response.document_id}")
+
+# 2. Trigger Processing Pipeline (Chunking, Embedding, Knowledge Graph)
+await client.documents.process(
+    org_id=org_id,
+    project_id=project_id,
+    document_id=upload_response.document_id
+)
+
+# 3. Retrieve Document Details
+doc = await client.documents.get(
+    org_id=org_id,
+    project_id=project_id,
+    document_id=upload_response.document_id
+)
+print(f"File: {doc.name}, Status: {doc.status}")
+
+# 4. Generate a Secure Presigned URL for Download/Viewing
+url_response = await client.documents.get_signed_url(
+    org_id=org_id,
+    project_id=project_id,
+    bucket=doc.bucket,
+    key=doc.key
+)
+print(f"Temporary Secure URL: {url_response.signed_url}")
+
+# 5. List all Documents in a Project
+documents = await client.documents.list(org_id=org_id, project_id=project_id)
+
+# 6. Delete a Document
+await client.documents.delete(
+    org_id=org_id,
+    project_id=project_id,
+    document_id=upload_response.document_id
+)
+
 ```
 
 ---
