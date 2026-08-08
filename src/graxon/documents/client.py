@@ -1,10 +1,12 @@
-from .types import DocumentMultipartUploadPartParams, PresignedUrlRequestParams, CompleteMultipartUploadParams
+from .types import DocumentMultipartUploadPartParams, PresignedUrlRequestParams, CompleteMultipartUploadParams, DocumentUploadResponseParams, DocumentResponseSignedUrlParams, DocumentGetParams
 from ..errors import GraxonAPIError, GraxonNetworkError
 from typing import Any, Dict, List
 import tempfile
 import logging
 import httpx
 import uuid
+import math
+import json
 import os
 import re
 
@@ -73,29 +75,39 @@ class Document:
                 f"Failed to communicate with Graxon API: {str(e)}"
             ) from None
 
-    async def list(self, org_id: str, project_id: uuid.UUID) -> List[Dict[str, Any]]:
+    async def list(self, org_id: str, project_id: uuid.UUID) -> List[DocumentGetParams]:
         res_data = await self._request("GET", f"{self._document_prefix}/{org_id}/projects/{project_id}/get/all")
-        return res_data.get("data", {}).get("data", [])
+        list_data = res_data.get("data", {}).get("data", [])
 
-    async def get(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> Dict[str, Any]:
+        return [DocumentGetParams(**item) for item in list_data]
+
+    async def get(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> DocumentGetParams:
         res_data = await self._request("GET", f"{self._document_prefix}/{org_id}/projects/{project_id}/get/{document_id}")
-        return res_data.get("data", {})
+        data = res_data.get("data", {})
+        if not data:
+            raise GraxonAPIError("Graxon API Error: Response missing 'data' payload")
+        return DocumentGetParams(**data)
 
-    async def delete(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> bool:
+    async def delete(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> Dict[str, Any]:
         res_data = await self._request("DELETE", f"{self._document_prefix}/{org_id}/projects/{project_id}/delete/{document_id}")
-        return res_data.get("data", {}).get("success", False)
+        return res_data.get("data", {})
 
     async def process(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> bool:
         res_data = await self._request("POST", f"{self._document_prefix}/{org_id}/projects/{project_id}/process/{document_id}")
         return res_data.get("status_code") == 202
 
-    async def get_signed_url(self, org_id: str, project_id: uuid.UUID, bucket: str, key: str) -> Dict[str, Any]:
+    async def get_signed_url(self, org_id: str, project_id: uuid.UUID, bucket: str, key: str) -> DocumentResponseSignedUrlParams:
         res_data = await self._request(
             "GET", 
             f"{self._document_prefix}/{org_id}/projects/{project_id}/get-signed-url",
             params={"bucket": bucket, "key": key}
         )
-        return res_data.get("data", {})
+        signed_url = res_data.get("data", {}).get("signed_url", None)
+
+        if not signed_url:
+            raise GraxonAPIError("Graxon API Error: Response missing 'signed_url' payload")
+
+        return DocumentResponseSignedUrlParams(signed_url=signed_url)
 
     async def _init_multipart(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID, file_name: str) -> Dict[str, Any]:
         res_data = await self._request(
@@ -137,96 +149,141 @@ class Document:
 
         return f"{final_base}{ext}"
 
-    async def upload(self, org_id: str, project_id: uuid.UUID, file_path: str, document_id: uuid.UUID = uuid.uuid4(), is_ocr_needed: bool = False, chunk_size_in_mb: int = 10) -> Dict[str, Any]:
+    async def upload(self, org_id: str, project_id: uuid.UUID, file_path: str, document_id: uuid.UUID = uuid.uuid4(), is_ocr_needed: bool = False, chunk_size_in_mb: int = 10) -> DocumentUploadResponseParams:
         """
-        Handles splitting a large local file into temporary chunks, acquiring presigned URLs, 
-        uploading them, and completing the upload. Automatically cleans up tmp files on success or error.
+        Handles streaming a large local file directly to S3/MinIO via presigned URLs.
+        Includes local state tracking to resume automatically if the upload crashes.
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
         file_name = self._sanitize_file_name(os.path.basename(file_path))
         file_size = os.path.getsize(file_path)
-        chunk_size = chunk_size_in_mb * 1024 * 1024  # chunks (MinIO/S3 minimum)
+        chunk_size = chunk_size_in_mb * 1024 * 1024
+        total_parts = math.ceil(file_size / chunk_size) if file_size > 0 else 1
 
-        logger.info(f"Starting multipart upload for {file_name} ({file_size} bytes)")
+        # Determine state file path
+        state_file_path = f"{file_path}.graxon_resume.json"
+        state = {}
 
-        # Using TemporaryDirectory guarantees that the tmp folder and all chunk files 
-        # inside it are deleted when the block exits (even if an exception is raised).
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        # Check for existing resume state
+        if os.path.exists(state_file_path):
             try:
-                # Read the main file and split it into chunks stored in the tmp directory
-                chunk_files = []
-                logger.info(f"Splitting {file_name} into {chunk_size} byte chunks in {tmp_dir}")
+                with open(state_file_path, 'r') as sf:
+                    state = json.load(sf)
 
+                # Invalidate state if the file size changed since the crash
+                if state.get("file_size") != file_size:
+                    logger.warning("File size changed since last attempt. Starting fresh.")
+                    state = {}
+                else:
+                    logger.info(f"Found resume state. Resuming upload for {file_name}")
+            except Exception as e:
+                logger.warning(f"Could not read resume state file: {e}. Starting fresh.")
+                state = {}
+
+        # Initialize or restore variables
+        if not state:
+            # New upload initialization
+            current_document_id = document_id or uuid.uuid4()
+            init_data = await self._init_multipart(org_id, project_id, current_document_id, file_name)
+
+            upload_id = init_data.get("upload_id")
+            key = init_data.get("key")
+
+            if not upload_id or not key:
+                raise GraxonAPIError("Initialization failed: Missing upload_id or key in response")
+
+            state = {
+                "document_id": str(current_document_id),
+                "upload_id": upload_id,
+                "key": key,
+                "file_size": file_size,
+                "completed_parts": {}  # Format: {"part_num": "etag"}
+            }
+        else:
+            # Restore from state
+            current_document_id = uuid.UUID(state["document_id"])
+            upload_id = state["upload_id"]
+            key = state["key"]
+
+        completed_parts_dict = state.get("completed_parts", {})
+
+        # Prepare the parts list for the final complete request
+        completed_parts = [
+            DocumentMultipartUploadPartParams(etag=etag, part_number=int(p_num)) 
+            for p_num, etag in completed_parts_dict.items()
+        ]
+
+        logger.info(f"Starting/Resuming upload for {file_name} ({file_size} bytes / {total_parts} parts)")
+
+        try:
+            # Stream parts directly to S3/MinIO
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout)) as s3_client:
                 with open(file_path, 'rb') as main_file:
-                    part_num = 1
-                    while True:
-                        chunk_data = main_file.read(chunk_size)
-                        if not chunk_data:
+
+                    for part_num in range(1, total_parts + 1):
+                        part_str = str(part_num)
+
+                        # Skip if already uploaded
+                        if part_str in completed_parts_dict:
+                            logger.info(f"Skipping part {part_num}/{total_parts} (Already uploaded)")
+                            continue
+
+                        # Seek to the exact byte offset for this chunk
+                        offset = (part_num - 1) * chunk_size
+                        main_file.seek(offset)
+                        chunk_bytes = main_file.read(chunk_size)
+
+                        if not chunk_bytes:
                             break
 
-                        chunk_path = os.path.join(tmp_dir, f"part_{part_num}.tmp")
-                        with open(chunk_path, 'wb') as chunk_file:
-                            chunk_file.write(chunk_data)
-
-                        chunk_files.append((part_num, chunk_path))
-                        part_num += 1
-
-                # Initialize the multipart upload with the backend
-                init_data = await self._init_multipart(org_id, project_id, document_id, file_name)
-                upload_id = init_data.get("upload_id")
-                key = init_data.get("key")
-
-                if not upload_id or not key:
-                    raise GraxonAPIError("Initialization failed: Missing upload_id or key in response")
-
-                completed_parts = []
-
-                # Iterate over the saved tmp files and upload them
-                # Using a separate raw httpx client since S3/MinIO doesn't use the Graxon API envelope
-                async with httpx.AsyncClient(timeout=httpx.Timeout(self._timeout)) as s3_client:
-                    for part_num, chunk_path in chunk_files:
-
-                        # Get the presigned URL for this specific part
-                        url_data = await self._get_multipart_presigned_url(org_id, project_id, document_id, upload_id, key, part_num)
+                        # Get presigned URL
+                        url_data = await self._get_multipart_presigned_url(org_id, project_id, current_document_id, upload_id, key, part_num)
                         presigned_url = url_data.get("url")
+
                         if not presigned_url:
                             raise GraxonAPIError(f"Failed to get presigned URL for part {part_num}")
 
-                        logger.info(f"Uploading part {part_num}/{len(chunk_files)} for {file_name}")
+                        logger.info(f"Uploading part {part_num}/{total_parts} for {file_name}")
 
-                        # Read the chunk from the tmp file into memory first to avoid httpx sync/async conflict
-                        with open(chunk_path, 'rb') as chunk_to_upload:
-                            chunk_bytes = chunk_to_upload.read()
-
-                        # Upload the raw bytes to the presigned URL
+                        # Upload to S3/MinIO
                         s3_response = await s3_client.put(presigned_url, content=chunk_bytes)
                         s3_response.raise_for_status()
 
-                        # Extract the ETag from the S3 response headers (required for completion)
+                        # Extract ETag
                         etag = s3_response.headers.get("etag") or s3_response.headers.get("ETag")
                         if not etag:
                             raise GraxonAPIError(f"Failed to get ETag for part {part_num}")
 
-                        # S3 sometimes returns ETags with quotes, they must be included
-                        completed_parts.append(
-                            DocumentMultipartUploadPartParams(etag=etag, part_number=part_num)
-                        )
+                        completed_parts.append(DocumentMultipartUploadPartParams(etag=etag, part_number=part_num))
 
-                # Complete the multipart upload
-                logger.info(f"Completing multipart upload for {file_name}")
-                complete_payload = CompleteMultipartUploadParams(
-                    upload_id=upload_id,
-                    key=key,
-                    file_name=file_name,
-                    size=file_size,
-                    is_ocr_needed=is_ocr_needed,
-                    parts=completed_parts
-                )
+                        # Save state after successful part upload
+                        completed_parts_dict[part_str] = etag
+                        state["completed_parts"] = completed_parts_dict
+                        with open(state_file_path, 'w') as sf:
+                            json.dump(state, sf)
 
-                return await self._complete_multipart(org_id, project_id, document_id, complete_payload)
+            # Complete the multipart upload
+            logger.info(f"Completing multipart upload for {file_name}")
+            complete_payload = CompleteMultipartUploadParams(
+                upload_id=upload_id,
+                key=key,
+                file_name=file_name,
+                size=file_size,
+                is_ocr_needed=is_ocr_needed,
+                parts=completed_parts
+            )
 
-            except Exception as e:
-                logger.error(f"Multipart upload failed for {file_name}. Error: {str(e)}. Cleaning up temporary files.")
-                raise e
+            result = await self._complete_multipart(org_id, project_id, current_document_id, complete_payload)
+            output_document_id = result.get("document_id") or current_document_id
+
+            # Cleanup the resume state file on successful completion
+            if os.path.exists(state_file_path):
+                os.remove(state_file_path)
+
+            return DocumentUploadResponseParams(document_id=output_document_id)
+
+        except Exception as e:
+            logger.error(f"Multipart upload interrupted for {file_name}. Error: {str(e)}.")
+            raise e

@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from enum import Enum
-import uuid
 import datetime
+import uuid
 
 
 class DocumentStatus(str, Enum):
@@ -39,89 +39,14 @@ class DocumentUploadParams(BaseModel):
 
 
 class DocumentUploadResponseParams(BaseModel):
-    org_id: str = Field(
-        description="The organization id of the document",
-    )
-    project_id: uuid.UUID = Field(
-        description="The project id of the document",
-    )
-    id: uuid.UUID = Field(
+    document_id: uuid.UUID = Field(
         description="The id of the document",
     )
-    bucket: str = Field(
-        description="The bucket of the document",
-    )
-    key: str = Field(
-        description="The key of the document",
-    )
-    size: int | None = Field(
-        default=None,
-        description="The file size of the document",
-    )
 
+
+class DocumentResponseSignedUrlParams(BaseModel):
     signed_url: str = Field(
         description="The signed url of the document",
-    )
-
-    is_ocr_needed: bool = Field(
-        default=False,
-        description="True if OCR is needed",
-    )
-
-
-class DocumentGetSignedUrlParams(BaseModel):
-    org_id: str = Field(
-        description="The organization id of the document",
-    )
-    project_id: uuid.UUID = Field(
-        description="The project id of the document",
-    )
-    bucket: str = Field(
-        description="The bucket of the document",
-    )
-    key: str = Field(
-        description="The key of the document",
-    )
-
-
-class DocumentCreateParams(BaseModel):
-    org_id: str = Field(
-        description="The organization id of the document",
-    )
-    project_id: uuid.UUID = Field(
-        description="The project id of the document",
-    )
-    id: uuid.UUID = Field(
-        description="The id of the document",
-    )
-    readable_id: str = Field(
-        description="The readable id of the document",
-    )
-    name: str = Field(
-        description="The file name of the document",
-    )
-    type: str = Field(
-        description="The file type of the document",
-    )
-    bucket: str = Field(
-        description="The bucket of the document",
-    )
-    key: str = Field(
-        description="The key of the document",
-    )
-
-    size: int | None = Field(
-        default=None,
-        description="The file size of the document",
-    )
-
-    status: DocumentStatus = Field(
-        description="The status of the document",
-    )
-
-    is_ocr_needed: bool = Field(
-        default=False,
-        description="True if OCR is needed",
     )
 
 
@@ -169,21 +94,6 @@ class DocumentGetParams(BaseModel):
     )
     updated_at: datetime.datetime = Field(
         description="The updated at of the document",
-    )
-
-
-class DocumentStatusMQParams(BaseModel):
-    org_id: str = Field(
-        description="The organization id of the document",
-    )
-    project_id: uuid.UUID = Field(
-        description="The project id of the document",
-    )
-    id: uuid.UUID = Field(
-        description="The id of the document",
-    )
-    status: DocumentStatus = Field(
-        description="The status of the document",
     )
 
 
