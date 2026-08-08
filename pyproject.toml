@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graxon"
-version = "0.0.2"
+version = "0.0.3"
 description = "Placeholder release to reserve the graxon package name."
 readme = "README.md"
 requires-python = ">=3.8"
