@@ -4,6 +4,7 @@ from .project_configs import ProjectConfig
 from .model_providers import ModelProvider
 from .reranker_models import RerankerModel
 from .sparse_models import SparseModel
+from .documents.client import Document
 from .audio_models import AudioModel
 from .video_models import VideoModel
 from .ocr_models import OCRModel
@@ -52,6 +53,8 @@ class GraxonAsyncClient:
         self.projects = Project(api_key, base_url, timeout)
         self.project_configs = ProjectConfig(api_key, base_url, timeout)
         self.webhooks = Webhook(api_key, base_url, timeout)
+
+        self.documents = Document(api_key, base_url, timeout)
 
         self.embedding_models = EmbeddingModel(api_key, base_url, timeout)
         self.reranker_models = RerankerModel(api_key, base_url, timeout)
