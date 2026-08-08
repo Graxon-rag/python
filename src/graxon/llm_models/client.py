@@ -122,7 +122,7 @@ class LLMModel:
             print(model.id)
             ```
         """
-        payload = request.model_dump()
+        payload = request.model_dump(mode='json')
         res_data = await self._request("POST", f"{self._llm_model_prefix}/{org_id}/create", json=payload)
         data = res_data.get("data")
         if not data:
@@ -171,7 +171,7 @@ class LLMModel:
             print(result)
             ```
         """
-        payload = [item.model_dump() for item in request]
+        payload = [item.model_dump(mode='json') for item in request]
         res_data = await self._request("POST", f"{self._llm_model_prefix}/{org_id}/create-multiple", json=payload)
 
         data = res_data.get("data")
