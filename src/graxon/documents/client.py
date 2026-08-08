@@ -14,6 +14,30 @@ logger = logging.getLogger(__name__)
 
 
 class Document:
+    """Client for managing Documents and file uploads in the Graxon API.
+
+    This client supports robust, resumable multipart uploads for large files 
+    and handles document lifecycle management including retrieval, processing, 
+    and secure access generation.
+
+    Examples:
+        ```python
+        from graxon.client import GraxonAsyncClient
+        import uuid
+
+        client = GraxonAsyncClient(api_key="graxon_api_key", base_url="http://localhost:8888")
+        project_id = uuid.UUID("e538c04e-22c0-41a4-a1f6-49b91183e0bb")
+
+        # Upload a file
+        upload_response = await client.documents.upload(
+            org_id="test",
+            project_id=project_id,
+            file_path="./data/large.pdf",
+            chunk_size_in_mb=15,
+        )
+        print(upload_response.document_id)
+        ```
+    """
     def __init__(self, api_key: str | None, base_url: str = "http://localhost:8888", timeout: float | None = 120.0):
         self._api_key = api_key
         self._base_url = base_url
@@ -76,12 +100,59 @@ class Document:
             ) from None
 
     async def list(self, org_id: str, project_id: uuid.UUID) -> List[DocumentGetParams]:
+        """Retrieves a list of all documents within a specific project.
+
+        Args:
+            org_id: The unique identifier of the organization.
+            project_id: The UUID of the project.
+
+        Returns:
+            List[DocumentGetParams]: A list of all documents belonging to the project.
+
+        Raises:
+            GraxonAPIError: If the API responds with an error or unexpected payload.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            list_response = await client.documents.list(
+                org_id="test", 
+                project_id=project_id
+            )
+            for doc in list_response:
+                print(doc.name, doc.id)
+            ```
+        """
         res_data = await self._request("GET", f"{self._document_prefix}/{org_id}/projects/{project_id}/get/all")
         list_data = res_data.get("data", {}).get("data", [])
 
         return [DocumentGetParams(**item) for item in list_data]
 
     async def get(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> DocumentGetParams:
+        """Retrieves the details and metadata of a specific document by its ID.
+
+        Args:
+            org_id: The unique identifier of the organization.
+            project_id: The UUID of the project the document belongs to.
+            document_id: The UUID of the document to retrieve.
+
+        Returns:
+            DocumentGetParams: The requested document details.
+
+        Raises:
+            GraxonAPIError: If the document is not found, or the API responds with an error.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            get_response = await client.documents.get(
+                org_id="test", 
+                project_id=project_id, 
+                document_id=upload_response.document_id
+            )
+            print(get_response.name, get_response.bucket)
+            ```
+        """
         res_data = await self._request("GET", f"{self._document_prefix}/{org_id}/projects/{project_id}/get/{document_id}")
         data = res_data.get("data", {})
         if not data:
@@ -89,14 +160,94 @@ class Document:
         return DocumentGetParams(**data)
 
     async def delete(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> Dict[str, Any]:
+        """Deletes a specific document and its associated data from a project.
+
+        Args:
+            org_id: The unique identifier of the organization.
+            project_id: The UUID of the project the document belongs to.
+            document_id: The UUID of the document to delete.
+
+        Returns:
+            Dict[str, Any]: A dictionary containing the response payload confirming deletion.
+
+        Raises:
+            GraxonAPIError: If the document is not found, or the API responds with an error.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            delete_response = await client.documents.delete(
+                org_id="test", 
+                project_id=project_id, 
+                document_id=upload_response.document_id
+            )
+            print(delete_response)
+            ```
+        """
         res_data = await self._request("DELETE", f"{self._document_prefix}/{org_id}/projects/{project_id}/delete/{document_id}")
         return res_data.get("data", {})
 
     async def process(self, org_id: str, project_id: uuid.UUID, document_id: uuid.UUID) -> bool:
+        """Triggers the background data processing pipeline for a specific document.
+
+        This initiates steps such as OCR transcription, text extraction, chunking, 
+        embedding, and graph construction depending on the project's configuration.
+
+        Args:
+            org_id: The unique identifier of the organization.
+            project_id: The UUID of the project.
+            document_id: The UUID of the document to process.
+
+        Returns:
+            bool: `True` if the processing request was successfully accepted (HTTP 202).
+
+        Raises:
+            GraxonAPIError: If the API responds with an error.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            is_processing = await client.documents.process(
+                org_id="test", 
+                project_id=project_id, 
+                document_id=upload_response.document_id
+            )
+            print(f"Processing started: {is_processing}")
+            ```
+        """
         res_data = await self._request("POST", f"{self._document_prefix}/{org_id}/projects/{project_id}/process/{document_id}")
         return res_data.get("status_code") == 202
 
     async def get_signed_url(self, org_id: str, project_id: uuid.UUID, bucket: str, key: str) -> DocumentResponseSignedUrlParams:
+        """Generates a temporary presigned URL to securely access or download the document file.
+
+        Args:
+            org_id: The unique identifier of the organization.
+            project_id: The UUID of the project.
+            bucket: The storage bucket where the file resides (retrieved via `get()`).
+            key: The object key/path of the file in the bucket (retrieved via `get()`).
+
+        Returns:
+            DocumentResponseSignedUrlParams: Contains the temporary `signed_url`.
+
+        Raises:
+            GraxonAPIError: If the API fails to generate the URL.
+            GraxonNetworkError: If the request fails to reach the API.
+
+        Examples:
+            ```python
+            # First, fetch document details to get the bucket and key
+            doc = await client.documents.get(org_id, project_id, document_id)
+
+            signed_url_response = await client.documents.get_signed_url(
+                org_id="test", 
+                project_id=project_id, 
+                bucket=doc.bucket, 
+                key=doc.key
+            )
+            print(signed_url_response.signed_url)
+            ```
+        """
         res_data = await self._request(
             "GET", 
             f"{self._document_prefix}/{org_id}/projects/{project_id}/get-signed-url",
@@ -150,9 +301,39 @@ class Document:
         return f"{final_base}{ext}"
 
     async def upload(self, org_id: str, project_id: uuid.UUID, file_path: str, document_id: uuid.UUID = uuid.uuid4(), is_ocr_needed: bool = False, chunk_size_in_mb: int = 10) -> DocumentUploadResponseParams:
-        """
-        Handles streaming a large local file directly to S3/MinIO via presigned URLs.
-        Includes local state tracking to resume automatically if the upload crashes.
+        """Uploads a local file directly to storage via a resumable multipart upload.
+
+        This method chunks large files and uploads them efficiently using presigned URLs. 
+        It creates a local JSON state file during the upload. If the upload process is 
+        interrupted or crashes, re-running the same method will automatically resume 
+        from the last successfully uploaded chunk.
+
+        Args:
+            org_id: The unique identifier of the organization.
+            project_id: The UUID of the project.
+            file_path: The absolute or relative local path to the file being uploaded.
+            document_id: An optional predefined UUID for the document. Defaults to a newly generated UUID.
+            is_ocr_needed: Flag to mark if the document specifically requires OCR processing. Defaults to `False`.
+            chunk_size_in_mb: The size of each upload chunk in Megabytes. Defaults to 10.
+
+        Returns:
+            DocumentUploadResponseParams: Contains the `document_id` of the successfully uploaded file.
+
+        Raises:
+            FileNotFoundError: If the provided `file_path` does not exist locally.
+            GraxonAPIError: If upload initialization, presigned URL generation, or final completion fails.
+            GraxonNetworkError: If a network issue interrupts the upload of chunks.
+
+        Examples:
+            ```python
+            upload_response = await client.documents.upload(
+                org_id="test",
+                project_id=project_id,
+                file_path="./data/video.mp4",
+                chunk_size_in_mb=15,
+            )
+            print(f"Upload complete. Document ID: {upload_response.document_id}")
+            ```
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
