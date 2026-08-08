@@ -86,9 +86,9 @@ class ProjectConfig:
             raise GraxonAPIError("Graxon API Error: Response missing 'data' payload")
         return ProjectConfigGetParams(**data)
 
-    async def update(self, org_id: str, project_id: uuid.UUID, config_id: uuid.UUID, request: ProjectConfigUpdateParams) -> ProjectConfigGetParams:
+    async def update(self, org_id: str, project_id: uuid.UUID, config_id: uuid.UUID, update: ProjectConfigUpdateParams) -> ProjectConfigGetParams:
         """Updates a specific project config by config ID."""
-        payload = request.model_dump()
+        payload = update.model_dump(mode='json', exclude_unset=True, exclude_none=True)
         res_data = await self._request("PUT", f"{self._project_prefix}/{org_id}/{project_id}/update/{config_id}", json=payload)
         data = res_data.get("data")
         if not data:
